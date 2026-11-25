@@ -1,9 +1,9 @@
 # dsh-nc — bundle layer.
 #
 # One Loader entry per package: the `nc` entry carries the host half
-# (`/api/dsh-nc/*` read routes on the authenticated Connection fetch channel)
-# and, through its `dsh.client` metadata, makes the browser load the ./client
-# face (the Files tab, the sidebar launcher and the main panel).
+# (`/api/dsh-nc/*` routes on the authenticated Connection fetch channel) and,
+# through its `dsh.client` metadata, makes the browser load the ./client face
+# (the Files tab beside Chat and Trajectory).
 - insert:
     - id: nc
-      name: @dr-co/dsh-nc
+      name: '@dr-co/dsh-nc'
