@@ -807,7 +807,7 @@ function Preview({ path, root, name, mode = 'source' }) {
  * @param props.startPath - directory both panes start from in a new session.
  * @param props.root - root of the browse scope in workdir mode.
  */
-export function FileBrowser({ sessionKey, startPath, root }) {
+export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocusHandled }) {
   const t = useT()
   const key = sessionKey ?? 'default'
   // The third argument is for server rendering and tests: the same snapshot as in the browser.
@@ -826,6 +826,14 @@ export function FileBrowser({ sessionKey, startPath, root }) {
   const [sizeQuery, setSizeQuery] = useState(null)
   // Permission to overwrite existing targets: off by default.
   const [allowOverwrite, setAllowOverwrite] = useState(false)
+  // External focus request (a click on a file link in chat): open that file.
+  useEffect(() => {
+    if (!focusRequest || focusRequest.view !== 'nc-files') return
+    const path = focusRequest.focus
+    if (path) ncStore.openPath(path)
+    if (typeof onFocusHandled === 'function') onFocusHandled()
+  }, [focusRequest, onFocusHandled])
+
   // Jobs moved to the background: they live in the store and survive a page reload.
   const background = state.tasks ?? []
   const setBackground = useCallback((value) => ncStore.setTasks(value), [])

@@ -59,12 +59,22 @@ const fakeLocale = {
   },
 }
 
+/** Fake sidebar tab registry: records the resource type the plugin claims. */
+const tabTypes = []
+const fakeTabs = {
+  register: (definition) => {
+    tabTypes.push(definition)
+    return () => {}
+  },
+}
+
 const registrations = []
 const ctx = {
   logger: () => ({ info: () => {} }),
   effect: (fn) => (typeof fn === 'function' ? fn() : undefined),
   get: (name) => (name === 'locale' ? fakeLocale : undefined),
   locale: fakeLocale,
+  sidebarRightTabs: fakeTabs,
   slots: {
     inject: (_name, fn) => fn(),
     register: (options, component) => {
@@ -77,6 +87,10 @@ loaded.apply(ctx)
 console.log('dictionaries registered:', dicts.size, '→', [...dicts.keys()].join(', '))
 console.log('registrations:', registrations.map((r) => `${r.options.name}:${r.options.id}`).join(', '))
 
+console.log(
+  'resource type:',
+  tabTypes.map((type) => `${type.kind}/${type.priority}/${type.patterns?.join('|')}`).join(', ') || 'нет',
+)
 const view = registrations.find((r) => r.options.name === 'conversation.view')
 const props = {
   sessionId: 'test-session',

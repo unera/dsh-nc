@@ -10,6 +10,7 @@
 
 import { Component, createContext, useContext, useEffect, useMemo, useSyncExternalStore } from 'react'
 import { FileBrowser } from './Browser.jsx'
+import { ncStore } from './store.js'
 import { NAMESPACE, detectLocale, en, fallbackTranslate, ru, zh } from './i18n.js'
 
 export const name = 'dsh-nc'
@@ -23,6 +24,51 @@ const TranslateContext = createContext(fallbackTranslate(detectLocale()))
 /** Translation hook for the browser components. */
 export function useT() {
   return useContext(TranslateContext)
+}
+
+/** `openView` captured from the Files view: the only public way to select the tab. */
+let viewSwitcher = null
+
+/**
+ * Address of a file resource: `dsh-resource://file/session/<session>/<path>`.
+ * @param address - resource address from the tab record.
+ * @returns the absolute path, or an empty string when the address is not absolute.
+ */
+function filePathOfAddress(address) {
+  const prefix = 'dsh-resource://file/session/'
+  if (typeof address !== 'string' || !address.startsWith(prefix)) return ''
+  const rest = address.slice(prefix.length)
+  const slash = rest.indexOf('/')
+  if (slash === -1) return ''
+  const parts = rest.slice(slash + 1).split('/').filter((part) => part !== '')
+  const decoded = []
+  for (const part of parts) {
+    try {
+      decoded.push(decodeURIComponent(part))
+    } catch {
+      decoded.push(part)
+    }
+  }
+  const path = decoded.join('/')
+  if (path === '') return ''
+  return path.startsWith('/') ? `/${path.replace(/^\/+/, '')}` : ''
+}
+
+/**
+ * Hand a file to the Files view: the path goes into the store, and the view is
+ * selected when its `openView` has already been captured.
+ * @param path - absolute file path.
+ * @returns whether the view could be switched right away.
+ */
+function openInFilesView(path) {
+  ncStore.openPath(path)
+  if (!viewSwitcher) return false
+  try {
+    viewSwitcher('nc-files', path)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** Current DSH locale and its change counter: the language switches without a reload. */
@@ -181,11 +227,25 @@ function cwdOf(useSessions, sessionId) {
 /** Files tab: the browser across the whole available area, without the chat input. */
 function NcTabView(props) {
   useComposerlessScreen()
+  // `openView` живёт только в props вкладки: запоминаем, чтобы клик по ссылке
+  // в чате мог переключить беседу на эту вкладку.
+  useEffect(() => {
+    viewSwitcher = typeof props.openView === 'function' ? props.openView : null
+    return () => {
+      viewSwitcher = null
+    }
+  }, [props.openView])
+
   const cwd = cwdOf(props.useSessions, props.sessionId)
   return (
     <TranslateProvider>
       <NcErrorBoundary t={currentTranslate()}>
-        <FileBrowser sessionKey={props.sessionId ?? 'default'} startPath={cwd ?? undefined} />
+        <FileBrowser
+          sessionKey={props.sessionId ?? 'default'}
+          startPath={cwd ?? undefined}
+          focusRequest={props.viewRequest ?? null}
+          onFocusHandled={props.completeViewRequest}
+        />
       </NcErrorBoundary>
     </TranslateProvider>
   )
@@ -198,6 +258,65 @@ function NcTabView(props) {
  * slot and removes the registration together with it.
  * @param ctx - client context of the plugin.
  */
+/**
+ * Stand-in tab body for a file resource: it never draws the file, it hands the
+ * path to the Files view and closes itself, so a click on a file chip ends in the
+ * full-screen viewer instead of the right column.
+ */
+function NcRedirect(props) {
+  const t = useT()
+  const info = typeof props.useTabInfo === 'function' ? props.useTabInfo() : undefined
+  const address = info?.tab?.contentId ?? info?.tab?.navigation?.address ?? ''
+
+  useEffect(() => {
+    const path = filePathOfAddress(address)
+    if (path !== '') openInFilesView(path)
+    try {
+      info?.tab?.actions?.close()
+    } catch {
+      // Tab already gone: nothing to close.
+    }
+  }, [address, info])
+
+  return (
+    <div style={{ padding: 12, fontSize: '0.9em', color: 'var(--dsw-alias-label-secondary, #5a6478)' }}>
+      {t('msg.openingInNc')}
+    </div>
+  )
+}
+
+const VIEWER_KIND = 'dsh-nc-viewer'
+const VIEWER_ID = 'dsh-nc-viewer'
+
+/**
+ * Register the redirect type and its body.
+ * @param ctx - client context carrying the slot registry and the sidebar registry.
+ */
+function registerResourceRedirect(ctx) {
+  const tabs = ctx.sidebarRightTabs ?? (typeof ctx.get === 'function' ? ctx.get('sidebarRightTabs') : undefined)
+  if (!tabs || typeof tabs.register !== 'function') return false
+  ctx.effect(() =>
+    tabs.register({
+      id: VIEWER_ID,
+      kind: VIEWER_KIND,
+      patterns: ['dsh-resource://file/**'],
+      priority: 'extension',
+      title: (address) => {
+        const name = address.slice(address.lastIndexOf('/') + 1)
+        try {
+          return decodeURIComponent(name)
+        } catch {
+          return name
+        }
+      },
+    }),
+  )
+  ctx.slots.inject('sidebar.right.pane.tab', () =>
+    ctx.slots.register({ name: 'sidebar.right.pane.tab', key: VIEWER_ID }, NcRedirect),
+  )
+  return true
+}
+
 export function apply(ctx) {
   const log = ctx.logger('dsh-nc:client')
 
@@ -216,6 +335,10 @@ export function apply(ctx) {
     }
   } else {
     log.info('dsh-nc: no shared locale in this build, using the built-in fallback')
+  }
+
+  if (!registerResourceRedirect(ctx)) {
+    log.info('dsh-nc: sidebar tab registry is absent, file links keep the built-in preview')
   }
 
   ctx.slots.inject('conversation.view', () =>

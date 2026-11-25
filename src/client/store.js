@@ -196,6 +196,15 @@ export const ncStore = {
     commit({ cursor }, {})
   },
   /** Open a file: the viewer takes the whole tab screen. */
+  /** Open a file by path: the name comes from the path, no duplicates. */
+  openPath(path) {
+    if (!path) return
+    const name = path.split('/').filter(Boolean).pop() ?? path
+    const openFiles = current.openFiles.some((file) => file.path === path)
+      ? current.openFiles
+      : [...current.openFiles, { path, name }]
+    commit({ openFiles, activePath: path, viewMode: 'file' })
+  },
   openFile(entry) {
     const openFiles = current.openFiles.some((file) => file.path === entry.path)
       ? current.openFiles
