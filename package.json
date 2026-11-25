@@ -1,0 +1,73 @@
+{
+  "name": "@dr-co/dsh-nc",
+  "version": "1.0.0",
+  "description": "Norton Commander style file browser for DeepSeek Harness: a Files tab with two panels, plan-first copy/move/delete, background progress, syntax highlighting and Markdown preview.",
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "lib/",
+    "src/",
+    "scripts/",
+    "test/",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build-client.mjs",
+    "prepack": "npm run build",
+    "pretest": "npm run build",
+    "test": "node --test test/host.test.mjs && node scripts/render-smoke.mjs"
+  },
+  "devDependencies": {
+    "@deepseek-ai/schemastery": "^3.19.0",
+    "esbuild": "^0.25.12",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "file-browser",
+    "file-manager",
+    "norton-commander",
+    "file-operations"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "license": "MIT",
+  "author": "Dmitry Oboukhov <unera@debian.org>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/unera/dsh-nc.git"
+  },
+  "homepage": "https://github.com/unera/dsh-nc#readme",
+  "bugs": {
+    "url": "https://github.com/unera/dsh-nc/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
