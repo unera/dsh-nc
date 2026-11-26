@@ -20,6 +20,7 @@ import {
 import { formatMode, formatSize, formatTime, ncStore, sortEntries } from './store.js'
 import { highlight, languageOf, TOKEN_COLORS } from './highlight.js'
 import { MarkdownView } from './Markdown.jsx'
+import { sendCommentToChat } from './chatBridge.js'
 import { useT } from './index.jsx'
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'ico', 'svg'])
@@ -714,8 +715,18 @@ function Pane({ index, pane, active, root, cursorPath, onCursor, onResolved, onE
 }
 
 /** View of the contents of the open file. */
-function Preview({ path, root, name, mode = 'source' }) {
+function Preview({ path, root, name, mode = 'source', sessionId }) {
   const t = useT()
+  // Selected line range: { from, to }, both 1-based and inclusive.
+  const [selection, setSelection] = useState(null)
+
+  useEffect(() => {
+    setSelection(null)
+  }, [path])
+
+  const selectLine = (row) => {
+    setSelection((previous) => (previous && previous.from === row && previous.to === row ? null : { from: row, to: row }))
+  }
   const [state, setState] = useState({ status: 'loading' })
   const kind = previewKindOf(name)
   // Markdown in "Render" mode and html in "Source" mode need the text as well.
@@ -778,10 +789,58 @@ function Preview({ path, root, name, mode = 'source' }) {
   const lines = painted ?? text.split('\n').map((line) => [{ text: line, type: 'plain' }])
   return (
     <div>
+      {selection ? (
+        <div style={styles.lineBar}>
+          <span style={styles.lineBarText}>
+            {name}:{selection.from}
+            {selection.to > selection.from ? `-${selection.to}` : ''}
+          </span>
+          <button
+            type="button"
+            style={styles.button}
+            onClick={() => {
+              const suffix = selection.to > selection.from ? `${selection.from}-${selection.to}` : `${selection.from}`
+              const text = `> ${name}:${suffix}:`
+              const ok = sendCommentToChat({ sessionId, text })
+              if (!ok) {
+                alert(t('lines.failed'))
+                return
+              }
+              try {
+                void navigator.clipboard?.writeText(text)
+              } catch {
+                // The reference is already in the draft; the clipboard is a bonus.
+              }
+              setSelection(null)
+            }}
+          >
+            {t('lines.comment')}
+          </button>
+        </div>
+      ) : null}
+
       <pre style={styles.pre}>
-        {lines.map((line, number) => (
-          <div key={number}>
-            <span style={styles.lineNumber}>{number + 1}</span>
+        {lines.map((line, number) => {
+          const row = number + 1
+          const inSelection = selection !== null && row >= selection.from && row <= selection.to
+          return (
+          <div
+            key={number}
+            style={inSelection ? styles.lineSelected : undefined}
+            data-line={row}
+            onMouseDown={(event) => {
+              if (event.shiftKey && selection) {
+                // Shift extends the range; the anchor stays where the first click was.
+                event.preventDefault()
+                setSelection({ from: Math.min(selection.from, row), to: Math.max(selection.from, row), anchor: row })
+                return
+              }
+              selectLine(row)
+            }}
+          >
+            <span style={{ ...styles.lineNumber, ...(inSelection ? styles.lineNumberSelected : null) }}>
+              {row}
+            </span>
             {line.length === 0
               ? '\u200b'
               : line.map((piece, index) => (
@@ -790,7 +849,8 @@ function Preview({ path, root, name, mode = 'source' }) {
                   </span>
                 ))}
           </div>
-        ))}
+          )
+        })}
       </pre>
       {state.body.truncated ? (
         <div style={styles.note}>
@@ -1379,6 +1439,7 @@ export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocus
               root={root}
               name={activeFile.name}
               mode={sourceView ? 'source' : 'rendered'}
+              sessionId={sessionKey}
             />
           </div>
         </div>

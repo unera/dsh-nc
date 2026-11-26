@@ -11,6 +11,8 @@
 import { Component, createContext, useContext, useEffect, useMemo, useSyncExternalStore } from 'react'
 import { FileBrowser } from './Browser.jsx'
 import { ncStore } from './store.js'
+import { trace } from './api.js'
+import { setChatBridge } from './chatBridge.js'
 import { NAMESPACE, detectLocale, en, fallbackTranslate, ru, zh } from './i18n.js'
 
 export const name = 'dsh-nc'
@@ -24,6 +26,26 @@ const TranslateContext = createContext(fallbackTranslate(detectLocale()))
 /** Translation hook for the browser components. */
 export function useT() {
   return useContext(TranslateContext)
+}
+
+/** Small folder icon for the context menu item; the slot renders any component. */
+function NcMenuIcon({ size = 16 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M1.5 4.2h4.2l1.3 1.6h7.5v6.7a1 1 0 0 1-1 1H2.5a1 1 0 0 1-1-1V4.2Z" />
+      <path d="M1.5 5.8h13" />
+    </svg>
+  )
 }
 
 /** `openView` captured from the Files view: the only public way to select the tab. */
@@ -60,6 +82,18 @@ function filePathOfAddress(address) {
  * @param path - absolute file path.
  * @returns whether the view could be switched right away.
  */
+/**
+ * Tell the user where the file went when the Files view is not mounted yet: the
+ * tab can only be selected from inside itself, so the first visit is manual.
+ */
+function alertOpenedInTab() {
+  try {
+    trace('open: view switcher is not captured, the file waits in the Files tab')
+  } catch {
+    // Diagnostics never matter more than the action.
+  }
+}
+
 function openInFilesView(path) {
   ncStore.openPath(path)
   if (!viewSwitcher) return false
@@ -270,6 +304,7 @@ function NcRedirect(props) {
 
   useEffect(() => {
     const path = filePathOfAddress(address)
+    trace(`redirect: address=${address} path=${path}`)
     if (path !== '') openInFilesView(path)
     try {
       info?.tab?.actions?.close()
@@ -306,6 +341,7 @@ function registerResourceRedirect(ctx) {
  * @param tabs - the sidebar tab-type registry.
  */
 function registerRedirectType(ctx, tabs) {
+  trace('registerRedirectType: claiming dsh-resource://file/**')
   ctx.effect(() =>
     tabs.register({
       id: VIEWER_ID,
@@ -324,6 +360,7 @@ function registerRedirectType(ctx, tabs) {
   )
   // Only claim the body slot when the sidebar really declares it: an unknown slot
   // name throws, and that would take the registration of the tab with it.
+  trace('registerRedirectType: body slot registration')
   try {
     ctx.slots.inject('sidebar.right.pane.tab', () =>
       ctx.slots.register({ name: 'sidebar.right.pane.tab', key: VIEWER_ID }, NcRedirect),
@@ -345,6 +382,7 @@ function registerRedirectType(ctx, tabs) {
  * @returns whether a subscription or a direct call was arranged.
  */
 function whenService(ctx, name, setup) {
+  trace(`whenService(${name}) called`)
   const run = (target, service) => {
     try {
       setup(target, service)
@@ -352,19 +390,41 @@ function whenService(ctx, name, setup) {
       ctx.logger('dsh-nc:client').info(`dsh-nc: ${name} setup failed (${error.message})`)
     }
   }
-  const present = ctx[name] ?? (typeof ctx.get === 'function' ? ctx.get(name) : undefined)
+  // Reading a missing service may throw on the client context, so each read is guarded.
+  let present
+  try {
+    present = ctx[name]
+  } catch {
+    present = undefined
+  }
+  if (present === undefined && typeof ctx.get === 'function') {
+    try {
+      present = ctx.get(name)
+      trace(`whenService(${name}): ctx.get returned ${present === undefined ? 'undefined' : 'a service'}`)
+    } catch (error) {
+      trace(`whenService(${name}): ctx.get threw (${error.message})`)
+      present = undefined
+    }
+  }
   if (present) {
+    trace(`whenService(${name}): already present`)
     run(ctx, present)
     return true
   }
   if (typeof ctx.inject === 'function') {
     try {
-      ctx.inject([name], (inner) => run(inner, inner[name]))
+      trace(`whenService(${name}): subscribed via ctx.inject`)
+      ctx.inject([name], (inner) => {
+        trace(`whenService(${name}): service arrived`)
+        run(inner, inner[name])
+      })
       return true
-    } catch {
+    } catch (error) {
+      trace(`whenService(${name}): inject failed ${error.message}`)
       return false
     }
   }
+  trace(`whenService(${name}): nothing available`)
   return false
 }
 
@@ -396,21 +456,34 @@ function registerContextMenu(ctx, log) {
  * @param t - translation getter.
  */
 function registerMenuItem(ctx, menus, t) {
+  trace('registerMenuItem: registering file/directory contributions')
+  try {
+    ctx.slots.inject('contextMenu.icon', () =>
+      ctx.slots.register({ name: 'contextMenu.icon', key: 'dsh-nc.files' }, NcMenuIcon),
+    )
+  } catch (error) {
+    trace(`contextMenu.icon unavailable: ${error.message}`)
+  }
   ctx.effect(() =>
     menus.register({
       id: 'dsh-nc.open',
       target: 'file',
       // Ahead of the built-in file actions: the browser is the primary reader here.
       order: 10,
-      resolve: (target) => [
+      resolve: (target) => {
+        const label = t()('menu.openInFiles')
+        trace(`resolve(file): ${target?.path ?? 'no path'} label=${String(label)}`)
+        return [
         {
           id: 'dsh-nc.open',
-          label: t()('menu.openInFiles'),
+          label,
+          icon: { key: 'dsh-nc.files' },
           run: () => {
-            openInFilesView(target.path)
+            if (!openInFilesView(target.path)) alertOpenedInTab()
           },
         },
-      ],
+        ]
+      },
     }),
   )
 
@@ -419,10 +492,13 @@ function registerMenuItem(ctx, menus, t) {
       id: 'dsh-nc.open-dir',
       target: 'directory',
       order: 10,
-      resolve: (target) => [
+      resolve: (target) => {
+        trace(`resolve(directory): ${target?.path ?? 'no path'}`)
+        return [
         {
           id: 'dsh-nc.open-dir',
           label: t()('menu.openDirInFiles'),
+          icon: { key: 'dsh-nc.files' },
           run: () => {
             ncStore.setPath(ncStore.getSnapshot().activePane, target.path)
             if (viewSwitcher) {
@@ -434,14 +510,64 @@ function registerMenuItem(ctx, menus, t) {
             }
           },
         },
-      ],
+        ]
+      },
     }),
   )
 
 }
 
+/**
+ * Wire the viewer's comment action to the conversation: append the reference to
+ * the draft of the session and bring the chat view back.
+ *
+ * `ctx.conversation.input.for(actx)` needs a session-scoped context, which a root
+ * plugin does not have; `requestDraftInitialization(binding, …)` needs only a
+ * binding, so the bridge goes through it.
+ * @param ctx - client context.
+ * @param log - plugin logger.
+ */
+function registerChatBridge(ctx, log) {
+  const services = {}
+  const ready = () => services.conversation && services.sessions
+
+  whenService(ctx, 'conversation', (target, conversation) => {
+    services.conversation = conversation
+    if (ready()) install()
+  })
+  whenService(ctx, 'sessions', (target, sessions) => {
+    services.sessions = sessions
+    if (ready()) install()
+  })
+
+  function install() {
+    setChatBridge(({ sessionId, text }) => {
+      const sessions = services.sessions
+      const conversation = services.conversation
+      if (!sessionId || typeof sessions?.binding !== 'function') return false
+      const binding = sessions.binding(sessionId)
+      if (!binding) return false
+      conversation.input.requestDraftInitialization(binding, {
+        prompt: text,
+        whenDraftExists: 'append',
+      })
+      // Back to the chat: available because the Files view is mounted right now.
+      if (viewSwitcher) {
+        try {
+          viewSwitcher('chat', '')
+        } catch (error) {
+          log.info(`dsh-nc: could not switch back to chat (${error.message})`)
+        }
+      }
+      return true
+    })
+    log.info('dsh-nc: chat bridge installed')
+  }
+}
+
 export function apply(ctx) {
   const log = ctx.logger('dsh-nc:client')
+  trace('apply: start')
 
   // Dictionaries into the shared DSH locale: then the UI language switches the file browser too.
   const runtime = (typeof ctx.get === 'function' ? ctx.get('locale') : undefined) ?? ctx.locale
@@ -467,6 +593,12 @@ export function apply(ctx) {
   log.info('dsh-nc: Files tab registered')
 
   // Extra entry points: the context menu and the resource redirect. Both are optional.
+  try {
+    registerChatBridge(ctx, log)
+  } catch (error) {
+    log.info(`dsh-nc: chat bridge disabled (${error.message})`)
+  }
+
   try {
     if (!registerContextMenu(ctx, log)) {
       log.info('dsh-nc: context menu registry is absent, no "open in the file browser" item')

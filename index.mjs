@@ -649,6 +649,21 @@ export function apply(ctx, config) {
     throw new Failure(409, 'target-exists', `already exists: ${to}`, to)
   }
 
+  /**
+   * Diagnostic sink for the browser half: the client has no journal of its own,
+   * so it posts short trace lines here and they land in the server log.
+   */
+  route(
+    'log',
+    async (_params, request) => {
+      const body = await request.json().catch(() => null)
+      const message = typeof body?.message === 'string' ? body.message.slice(0, 500) : ''
+      if (message !== '') log.info(`[client] ${message}`)
+      return json({ ok: true })
+    },
+    ['POST'],
+  )
+
   route('home', async () => json({ ok: true, home: homedir() }))
 
   route('list', async (params) => {

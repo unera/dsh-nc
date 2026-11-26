@@ -111,3 +111,17 @@ export function dirSize(path, { root } = {}) {
 export function makeDir(path, { root } = {}) {
   return post('mkdir', { path }, root)
 }
+
+/** Diagnostic trace: the browser half has no journal of its own, so lines go to the host log. */
+export function trace(message) {
+  try {
+    void fetch(`${BASE}/log`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: String(message) }),
+    }).catch(() => {})
+  } catch {
+    // Diagnostics must never break the feature they are diagnosing.
+  }
+}
