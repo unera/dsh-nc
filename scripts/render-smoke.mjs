@@ -68,6 +68,15 @@ const fakeTabs = {
   },
 }
 
+/** Fake context menu registry: records the contributions the plugin adds. */
+const menuContributions = []
+const fakeMenus = {
+  register: (contribution) => {
+    menuContributions.push(contribution)
+    return () => {}
+  },
+}
+
 const registrations = []
 const ctx = {
   logger: () => ({ info: () => {} }),
@@ -75,6 +84,7 @@ const ctx = {
   get: (name) => (name === 'locale' ? fakeLocale : undefined),
   locale: fakeLocale,
   sidebarRightTabs: fakeTabs,
+  contextMenus: fakeMenus,
   slots: {
     inject: (_name, fn) => fn(),
     register: (options, component) => {
@@ -90,6 +100,10 @@ console.log('registrations:', registrations.map((r) => `${r.options.name}:${r.op
 console.log(
   'resource type:',
   tabTypes.map((type) => `${type.kind}/${type.priority}/${type.patterns?.join('|')}`).join(', ') || 'нет',
+)
+console.log(
+  'context menu:',
+  menuContributions.map((item) => `${item.target}/${item.order}`).join(', ') || 'нет',
 )
 const view = registrations.find((r) => r.options.name === 'conversation.view')
 const props = {

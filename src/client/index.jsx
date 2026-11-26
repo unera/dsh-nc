@@ -323,6 +323,67 @@ function registerResourceRedirect(ctx) {
   return true
 }
 
+/**
+ * Add our item to the context menu of a file or directory link.
+ *
+ * The menu is the public contribution point: a plugin registers a resolver for a
+ * target family and returns its own actions, so this path does not depend on the
+ * resource registry at all.
+ * @param ctx - client context carrying the context menu registry.
+ * @param log - plugin logger.
+ * @returns whether the contribution was registered.
+ */
+function registerContextMenu(ctx, log) {
+  const menus = ctx.contextMenus ?? (typeof ctx.get === 'function' ? ctx.get('contextMenus') : undefined)
+  if (!menus || typeof menus.register !== 'function') return false
+  const t = () => currentTranslate()
+
+  ctx.effect(() =>
+    menus.register({
+      id: 'dsh-nc.open',
+      target: 'file',
+      // Ahead of the built-in file actions: the browser is the primary reader here.
+      order: 10,
+      resolve: (target) => [
+        {
+          id: 'dsh-nc.open',
+          label: t()('menu.openInFiles'),
+          run: () => {
+            openInFilesView(target.path)
+          },
+        },
+      ],
+    }),
+  )
+
+  ctx.effect(() =>
+    menus.register({
+      id: 'dsh-nc.open-dir',
+      target: 'directory',
+      order: 10,
+      resolve: (target) => [
+        {
+          id: 'dsh-nc.open-dir',
+          label: t()('menu.openDirInFiles'),
+          run: () => {
+            ncStore.setPath(ncStore.getSnapshot().activePane, target.path)
+            if (viewSwitcher) {
+              try {
+                viewSwitcher('nc-files', target.path)
+              } catch {
+                // The view is not mounted: the path stays in the store.
+              }
+            }
+          },
+        },
+      ],
+    }),
+  )
+
+  log.info('dsh-nc: context menu items registered for file and directory links')
+  return true
+}
+
 export function apply(ctx) {
   const log = ctx.logger('dsh-nc:client')
 
@@ -349,7 +410,15 @@ export function apply(ctx) {
   )
   log.info('dsh-nc: Files tab registered')
 
-  // The link interception is an extra: if any of it fails, the tab stays usable.
+  // Extra entry points: the context menu and the resource redirect. Both are optional.
+  try {
+    if (!registerContextMenu(ctx, log)) {
+      log.info('dsh-nc: context menu registry is absent, no "open in the file browser" item')
+    }
+  } catch (error) {
+    log.info(`dsh-nc: context menu item disabled (${error.message})`)
+  }
+
   try {
     if (!registerResourceRedirect(ctx)) {
       log.info('dsh-nc: sidebar tab registry is absent, file links keep the built-in preview')
