@@ -227,6 +227,13 @@ export const ncStore = {
     const next = typeof value === 'function' ? value(current.dialog) : value
     commit({ dialog: next })
   },
+  /** Remember one file's viewer state: rendered/source mode and the scroll offset. */
+  setFileState(path, patch) {
+    if (!path) return
+    const fileStates = { ...(current.fileStates ?? {}) }
+    fileStates[path] = { ...(fileStates[path] ?? {}), ...patch }
+    commit({ fileStates })
+  },
   /** Reload the directories of both panes (after a copy, move or rename). */
   refresh() {
     commit({ revision: (current.revision ?? 0) + 1 })

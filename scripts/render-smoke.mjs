@@ -105,6 +105,15 @@ console.log(
   'context menu:',
   menuContributions.map((item) => `${item.target}/${item.order}`).join(', ') || 'нет',
 )
+// Guard against the recurring mistake: a store method used by the UI but missing
+// from the store. Silent replacements in the sources have caused dead buttons twice.
+const storeModule = await import(`${projectRoot}src/client/store.js`)
+const uiSource = readFileSync(`${projectRoot}src/client/Browser.jsx`, 'utf8')
+const usedMethods = [...new Set([...uiSource.matchAll(/ncStore\.(\w+)\(/g)].map((match) => match[1]))]
+const missing = usedMethods.filter((name) => typeof storeModule.ncStore[name] !== 'function')
+console.log('store methods used:', usedMethods.length, '| missing:', missing.join(', ') || 'none')
+if (missing.length > 0) process.exitCode = 1
+
 const view = registrations.find((r) => r.options.name === 'conversation.view')
 const props = {
   sessionId: 'test-session',
