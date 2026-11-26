@@ -382,6 +382,7 @@ const styles = {
     boxShadow: 'inset 2px 0 0 var(--dsw-alias-link, #2d66f7)',
   },
   lineNumberSelected: { color: 'var(--dsw-alias-link, #2d66f7)' },
+  gutterSpacer: { display: 'inline-block', width: 13 },
   gutterMenu: {
     border: 'none',
     background: 'transparent',
@@ -866,6 +867,8 @@ function Preview({ path, root, name, mode = 'source', sessionId, selection, setS
             style={inSelection ? styles.lineSelected : undefined}
             data-line={row}
             onMouseDown={(event) => {
+              // The gutter control never changes the selection.
+              if (event.target?.closest?.('[data-gutter]')) return
               if (event.shiftKey && selection) {
                 // Shift extends the range; the anchor stays where the first click was.
                 event.preventDefault()
@@ -878,18 +881,26 @@ function Preview({ path, root, name, mode = 'source', sessionId, selection, setS
             <span style={{ ...styles.lineNumber, ...(inSelection ? styles.lineNumberSelected : null) }}>
               {row}
             </span>
-            <button
-              type="button"
-              style={styles.gutterMenu}
-              title={t('lines.menu')}
-              onClick={(event) => {
-                event.stopPropagation()
-                const rect = event.currentTarget.getBoundingClientRect()
-                setGutterMenu({ row, x: rect.left, y: rect.bottom })
-              }}
-            >
-              ⋮
-            </button>
+            {selection && row === selection.from ? (
+              <button
+                type="button"
+                data-gutter="1"
+                style={styles.gutterMenu}
+                title={t('lines.menu')}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  setGutterMenu({ row, x: rect.left, y: rect.bottom })
+                }}
+              >
+                <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true">
+                  <path d="M1 1.5 L8 4.5 L1 7.5 Z" fill="currentColor" />
+                </svg>
+              </button>
+            ) : (
+              <span style={styles.gutterSpacer} />
+            )}
             {line.length === 0
               ? '\u200b'
               : line.map((piece, index) => (
