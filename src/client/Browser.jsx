@@ -1528,6 +1528,16 @@ export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocus
             >
               {t('preview.back')}
             </button>
+            {onExit ? (
+              <button
+                type="button"
+                style={styles.button}
+                onClick={onExit}
+                title={t('panel.backToChat')}
+              >
+                {t('panel.backToChat')}
+              </button>
+            ) : null}
             <span style={styles.viewerPath} title={activeFile.path}>
               {activeFile.path}
             </span>
