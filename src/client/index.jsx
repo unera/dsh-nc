@@ -9,7 +9,7 @@
  */
 
 import { Component, createContext, useContext, useEffect, useMemo, useSyncExternalStore } from 'react'
-import { FileBrowser } from './Browser.jsx'
+import { FileBrowser, FileViewerPane } from './Browser.jsx'
 import { ncStore } from './store.js'
 import { trace } from './api.js'
 import { setChatBridge } from './chatBridge.js'
@@ -307,23 +307,23 @@ function NcRedirect(props) {
   const t = useT()
   const info = typeof props.useTabInfo === 'function' ? props.useTabInfo() : undefined
   const address = info?.tab?.contentId ?? info?.tab?.navigation?.address ?? ''
-
-  useEffect(() => {
-    const path = filePathOfAddress(address)
-    trace(`redirect: address=${address} path=${path}`)
-    if (path !== '') openInFilesView(path)
+  const path = filePathOfAddress(address)
+  const close = () => {
     try {
       info?.tab?.actions?.close()
     } catch {
       // Tab already gone: nothing to close.
     }
-  }, [address, info])
+  }
 
-  return (
-    <div style={{ padding: 12, fontSize: '0.9em', color: 'var(--dsw-alias-label-secondary, #5a6478)' }}>
-      {t('msg.openingInNc')}
-    </div>
-  )
+  if (path === '') {
+    return (
+      <div style={{ padding: 12, fontSize: '0.9em', color: 'var(--dsw-alias-label-secondary, #5a6478)' }}>
+        {t('msg.openingInNc')}
+      </div>
+    )
+  }
+  return <FileViewerPane path={path} onClose={close} />
 }
 
 const VIEWER_KIND = 'dsh-nc-viewer'
@@ -681,13 +681,7 @@ export function apply(ctx) {
   )
   log.info('dsh-nc: Files tab registered')
 
-  // Extra entry points: the context menu and the resource redirect. Both are optional.
-  try {
-    registerPanel(ctx, log)
-  } catch (error) {
-    log.info(`dsh-nc: main panel disabled (${error.message})`)
-  }
-
+  // Extra entry points: the context menu and the resource type. Both are optional.
   try {
     registerChatBridge(ctx, log)
   } catch (error) {

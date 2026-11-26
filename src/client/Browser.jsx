@@ -964,6 +964,74 @@ function Preview({ path, root, name, mode = 'source', sessionId, selection, setS
 }
 
 /**
+ * The viewer as a standalone pane: the body of a file resource tab in the right
+ * sidebar. Shows one file, keeps line selection and the comment action.
+ * @param props.path - absolute file path.
+ * @param props.onClose - close the hosting tab.
+ */
+export function FileViewerPane({ path, onClose }) {
+  const t = useT()
+  const name = path.split('/').filter(Boolean).pop() ?? path
+  const [selection, setSelection] = useState(null)
+  const fileState = (ncStore.getSnapshot().fileStates ?? {})[path] ?? {}
+  const [mode, setMode] = useState(fileState.mode === 'source' ? 'source' : 'rendered')
+
+  const comment = () => {
+    if (!selection) return
+    const suffix = selection.to > selection.from ? `${selection.from}-${selection.to}` : `${selection.from}`
+    if (sendCommentToChat({ sessionId: undefined, text: `> ${path}:${suffix}:` })) setSelection(null)
+  }
+
+  return (
+    <div style={{ ...styles.root, height: '100%' }}>
+      <div style={styles.viewerBar}>
+        <button type="button" style={styles.button} onClick={onClose} title={t('msg.close')}>
+          ✕
+        </button>
+        <span style={styles.viewerPath} title={path}>
+          {path}
+        </span>
+        {selection ? (
+          <button type="button" style={{ ...styles.button, ...styles.buttonOn }} onClick={comment}>
+            {t('lines.comment')}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          style={{ ...styles.button, ...(mode === 'rendered' ? styles.buttonOn : null) }}
+          onClick={() => {
+            setMode('rendered')
+            ncStore.setFileState(path, { mode: 'rendered' })
+          }}
+        >
+          {t('preview.render')}
+        </button>
+        <button
+          type="button"
+          style={{ ...styles.button, ...(mode === 'source' ? styles.buttonOn : null) }}
+          onClick={() => {
+            setMode('source')
+            ncStore.setFileState(path, { mode: 'source' })
+          }}
+        >
+          {t('preview.source')}
+        </button>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 10 }}>
+        <Preview
+          path={path}
+          name={name}
+          mode={mode}
+          sessionId={undefined}
+          selection={selection}
+          setSelection={setSelection}
+        />
+      </div>
+    </div>
+  )
+}
+
+/**
  * The browser: two panes and the viewer.
  * @param props.sessionKey - state key: every session has its own panes and open files.
  * @param props.startPath - directory both panes start from in a new session.
