@@ -311,9 +311,15 @@ function registerResourceRedirect(ctx) {
       },
     }),
   )
-  ctx.slots.inject('sidebar.right.pane.tab', () =>
-    ctx.slots.register({ name: 'sidebar.right.pane.tab', key: VIEWER_ID }, NcRedirect),
-  )
+  // Only claim the body slot when the sidebar really declares it: an unknown slot
+  // name throws, and that would take the registration of the tab with it.
+  try {
+    ctx.slots.inject('sidebar.right.pane.tab', () =>
+      ctx.slots.register({ name: 'sidebar.right.pane.tab', key: VIEWER_ID }, NcRedirect),
+    )
+  } catch (error) {
+    ctx.logger('dsh-nc:client').info(`dsh-nc: sidebar body slot unavailable (${error.message})`)
+  }
   return true
 }
 
@@ -337,12 +343,18 @@ export function apply(ctx) {
     log.info('dsh-nc: no shared locale in this build, using the built-in fallback')
   }
 
-  if (!registerResourceRedirect(ctx)) {
-    log.info('dsh-nc: sidebar tab registry is absent, file links keep the built-in preview')
-  }
-
+  // The tab comes first and unconditionally: nothing below may take it down with it.
   ctx.slots.inject('conversation.view', () =>
     ctx.slots.register({ name: 'conversation.view', id: 'nc-files', order: 20, label: () => 'Files' }, NcTabView),
   )
   log.info('dsh-nc: Files tab registered')
+
+  // The link interception is an extra: if any of it fails, the tab stays usable.
+  try {
+    if (!registerResourceRedirect(ctx)) {
+      log.info('dsh-nc: sidebar tab registry is absent, file links keep the built-in preview')
+    }
+  } catch (error) {
+    log.info(`dsh-nc: link interception disabled (${error.message})`)
+  }
 }
