@@ -382,6 +382,39 @@ const styles = {
     boxShadow: 'inset 2px 0 0 var(--dsw-alias-link, #2d66f7)',
   },
   lineNumberSelected: { color: 'var(--dsw-alias-link, #2d66f7)' },
+  gutterMenu: {
+    border: 'none',
+    background: 'transparent',
+    color: COLORS.dim,
+    cursor: 'pointer',
+    padding: '0 4px',
+    font: 'inherit',
+    fontSize: '0.9em',
+    opacity: 0.65,
+  },
+  gutterPopup: {
+    position: 'fixed',
+    zIndex: 40,
+    display: 'flex',
+    flexDirection: 'column',
+    minWidth: 210,
+    padding: 4,
+    borderRadius: 8,
+    border: `1px solid ${COLORS.border}`,
+    background: 'var(--dsw-alias-bg-layer-2, #1b2029)',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.28)',
+  },
+  gutterItem: {
+    padding: '5px 8px',
+    border: 'none',
+    borderRadius: 6,
+    background: 'transparent',
+    color: COLORS.text,
+    font: 'inherit',
+    fontSize: 'var(--dsh-content-font-size, 13px)',
+    textAlign: 'left',
+    cursor: 'pointer',
+  },
   viewerSelection: {
     color: COLORS.text,
     fontSize: 'var(--dsh-content-font-size-secondary, 12px)',
@@ -727,12 +760,21 @@ function Pane({ index, pane, active, root, cursorPath, onCursor, onResolved, onE
 }
 
 /** View of the contents of the open file. */
-function Preview({ path, root, name, mode = 'source', sessionId, selection, setSelection }) {
+function Preview({ path, root, name, mode = 'source', sessionId, selection, setSelection, onContentReady }) {
   const t = useT()
 
   useEffect(() => {
     setSelection(null)
   }, [path, setSelection])
+
+  // Gutter menu: { row, x, y } while it is open, null otherwise.
+  const [gutterMenu, setGutterMenu] = useState(null)
+
+  const referenceOf = (row) => {
+    const range = selection ?? { from: row, to: row }
+    const suffix = range.to > range.from ? `${range.from}-${range.to}` : `${range.from}`
+    return `> ${path}:${suffix}:`
+  }
 
   const selectLine = (row) => {
     setSelection((previous) => (previous && previous.from === row && previous.to === row ? null : { from: row, to: row }))
@@ -795,7 +837,18 @@ function Preview({ path, root, name, mode = 'source', sessionId, selection, setS
   if (kind === 'markdown' && mode === 'rendered') {
     return <MarkdownView text={text} file={path} />
   }
+  useEffect(() => {
+    if (!gutterMenu) return undefined
+    const close = () => setGutterMenu(null)
+    document.addEventListener('click', close)
+    return () => document.removeEventListener('click', close)
+  }, [gutterMenu])
+
   const painted = highlight(text, languageOf(name))
+  // The body is rendered now: the owner can restore its scroll offset.
+  useEffect(() => {
+    if (typeof onContentReady === 'function') onContentReady(path)
+  }, [path, text, mode, onContentReady])
   const lines = painted ?? text.split('\n').map((line) => [{ text: line, type: 'plain' }])
   return (
     <div>
@@ -821,6 +874,18 @@ function Preview({ path, root, name, mode = 'source', sessionId, selection, setS
             <span style={{ ...styles.lineNumber, ...(inSelection ? styles.lineNumberSelected : null) }}>
               {row}
             </span>
+            <button
+              type="button"
+              style={styles.gutterMenu}
+              title={t('lines.menu')}
+              onClick={(event) => {
+                event.stopPropagation()
+                const rect = event.currentTarget.getBoundingClientRect()
+                setGutterMenu({ row, x: rect.left, y: rect.bottom })
+              }}
+            >
+              ⋮
+            </button>
             {line.length === 0
               ? '\u200b'
               : line.map((piece, index) => (
@@ -832,6 +897,41 @@ function Preview({ path, root, name, mode = 'source', sessionId, selection, setS
           )
         })}
       </pre>
+      {gutterMenu ? (
+        <div
+          style={{ ...styles.gutterPopup, left: gutterMenu.x, top: gutterMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            style={styles.gutterItem}
+            onClick={() => {
+              const text = referenceOf(gutterMenu.row)
+              try {
+                void navigator.clipboard?.writeText(text)
+              } catch {
+                // Clipboard is a bonus.
+              }
+              setGutterMenu(null)
+            }}
+          >
+            {t('lines.copy')}
+          </button>
+          <button
+            type="button"
+            style={styles.gutterItem}
+            onClick={() => {
+              const text = referenceOf(gutterMenu.row)
+              const ok = sendCommentToChat({ sessionId, text })
+              if (!ok) alert(t('lines.failed'))
+              setGutterMenu(null)
+            }}
+          >
+            {t('lines.comment')}
+          </button>
+        </div>
+      ) : null}
+
       {state.body.truncated ? (
         <div style={styles.note}>
           {t('msg.truncated', { shown: formatSize((state.body.text ?? '').length), total: formatSize(state.body.size) })}
@@ -986,15 +1086,24 @@ export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocus
   // Scroll position of the viewer, restored when the same file is opened again.
   const viewerBodyRef = useRef(null)
   const scrollTimer = useRef(undefined)
-  useEffect(() => {
+
+  /**
+   * Restore the saved offset once the file content is actually in the DOM: an
+   * empty body clamps scrollTop to zero, which is why the position was lost.
+   */
+  const restoreScroll = useCallback((path) => {
     const element = viewerBodyRef.current
-    if (!element) return undefined
-    const path = ncStore.getSnapshot().activePath
-    if (!path) return undefined
+    if (!element || !path) return
     const saved = (ncStore.getSnapshot().fileStates ?? {})[path]?.scroll ?? 0
-    element.scrollTop = saved
-    return undefined
-  }, [state.activePath])
+    if (saved <= 0) return
+    let attempts = 0
+    const apply = () => {
+      attempts += 1
+      element.scrollTop = saved
+      if (element.scrollTop !== saved && attempts < 20) window.setTimeout(apply, 50)
+    }
+    window.requestAnimationFrame(apply)
+  }, [])
 
   /** Persist the viewer scroll while it moves: on unmount the node is already detached. */
   const rememberScroll = useCallback(() => {
@@ -1485,6 +1594,7 @@ export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocus
               sessionId={sessionKey}
               selection={lineSelection}
               setSelection={setLineSelection}
+              onContentReady={restoreScroll}
             />
           </div>
         </div>
