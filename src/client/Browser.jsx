@@ -985,6 +985,7 @@ export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocus
   const current = resolved[state.activePane]
   // Scroll position of the viewer, restored when the same file is opened again.
   const viewerBodyRef = useRef(null)
+  const scrollTimer = useRef(undefined)
   useEffect(() => {
     const element = viewerBodyRef.current
     if (!element) return undefined
@@ -992,11 +993,20 @@ export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocus
     if (!path) return undefined
     const saved = (ncStore.getSnapshot().fileStates ?? {})[path]?.scroll ?? 0
     element.scrollTop = saved
-    return () => {
-      const top = element.scrollTop
-      if (top > 0) ncStore.setFileState(path, { scroll: top })
-    }
+    return undefined
   }, [state.activePath])
+
+  /** Persist the viewer scroll while it moves: on unmount the node is already detached. */
+  const rememberScroll = useCallback(() => {
+    const element = viewerBodyRef.current
+    const path = ncStore.getSnapshot().activePath
+    if (!element || !path) return
+    const top = element.scrollTop
+    window.clearTimeout(scrollTimer.current)
+    scrollTimer.current = window.setTimeout(() => {
+      ncStore.setFileState(path, { scroll: top })
+    }, 200)
+  }, [])
 
   const activeFile = useMemo(
     () => state.openFiles.find((file) => file.path === state.activePath) ?? null,
@@ -1466,7 +1476,7 @@ export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocus
               </span>
             ))}
           </div>
-          <div style={styles.fullViewerBody} ref={viewerBodyRef}>
+          <div style={styles.fullViewerBody} ref={viewerBodyRef} onScroll={rememberScroll}>
             <Preview
               path={activeFile.path}
               root={root}

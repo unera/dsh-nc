@@ -552,10 +552,15 @@ function NcPanelIcon({ size = 16, active = false }) {
 function switchPanel(show) {
   try {
     const layout = layoutService
-    if (!layout || typeof layout.selectPanel !== 'function') return false
+    if (!layout || typeof layout.selectPanel !== 'function') {
+      trace(`switchPanel(${show}): no layout service`)
+      return false
+    }
     layout.selectPanel(show ? PANEL_ID : null)
+    trace(`switchPanel(${show}): selected ${show ? PANEL_ID : 'conversation'}`)
     return true
-  } catch {
+  } catch (error) {
+    trace(`switchPanel(${show}) failed: ${error.message}`)
     return false
   }
 }
@@ -629,11 +634,21 @@ function registerChatBridge(ctx, log) {
 function registerPanel(ctx, log) {
   whenService(ctx, 'layout', (target, layout) => {
     layoutService = layout
-    target.slots.inject('sidebar.panellist', () =>
-      target.slots.register({ name: 'sidebar.panellist', id: PANEL_ID, order: 30, label: () => 'Files' }, NcPanelIcon),
-    )
-    target.slots.inject('main', () => target.slots.register({ name: 'main', key: PANEL_ID }, NcPanel))
-    log.info('dsh-nc: main panel registered')
+    try {
+      target.slots.inject('sidebar.panellist', () =>
+        target.slots.register({ name: 'sidebar.panellist', id: PANEL_ID, order: 30, label: () => 'Files' }, NcPanelIcon),
+      )
+      trace('registerPanel: sidebar launcher registered')
+    } catch (error) {
+      trace(`registerPanel: sidebar launcher failed (${error.message})`)
+    }
+    try {
+      target.slots.inject('main', () => target.slots.register({ name: 'main', key: PANEL_ID }, NcPanel))
+      trace('registerPanel: main body registered')
+    } catch (error) {
+      trace(`registerPanel: main body failed (${error.message})`)
+    }
+    log.info('dsh-nc: main panel registration attempted')
   })
 }
 
