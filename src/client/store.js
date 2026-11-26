@@ -69,6 +69,7 @@ function loadState(key) {
       ],
       openFiles: Array.isArray(saved.openFiles) ? saved.openFiles : [],
       tasks: Array.isArray(saved.tasks) ? saved.tasks : [],
+      fileStates: saved.fileStates && typeof saved.fileStates === 'object' ? saved.fileStates : {},
       activePath: saved.activePath ?? null,
       viewMode: saved.viewMode === 'file' ? 'file' : 'panes',
     }

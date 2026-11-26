@@ -376,6 +376,18 @@ const styles = {
   },
   note: { color: COLORS.dim, fontSize: 12 },
   error: { color: COLORS.danger, padding: 8, fontSize: 12 },
+  // Selected source lines: a filled band with an accent rule on the left.
+  lineSelected: {
+    background: 'rgba(45,102,247,0.28)',
+    boxShadow: 'inset 2px 0 0 var(--dsw-alias-link, #2d66f7)',
+  },
+  lineNumberSelected: { color: 'var(--dsw-alias-link, #2d66f7)' },
+  viewerSelection: {
+    color: COLORS.text,
+    fontSize: 'var(--dsh-content-font-size-secondary, 12px)',
+    fontFamily: '"SF Mono", ui-monospace, Menlo, Consolas, monospace',
+    whiteSpace: 'nowrap',
+  },
 }
 
 /**
@@ -845,8 +857,14 @@ export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocus
   const [toasts, setToasts] = useState([])
   // Line selection of the text viewer: { from, to }, 1-based and inclusive.
   const [lineSelection, setLineSelection] = useState(null)
-  // View mode: rendered or source. Markdown and HTML have two views, the rest have one.
-  const [sourceView, setSourceView] = useState(false)
+  // View mode lives in the store per file: leaving the viewer and coming back keeps
+  // the chosen mode instead of silently resetting to the rendered one.
+  const fileState = (state.fileStates ?? {})[state.activePath ?? ''] ?? {}
+  const sourceView = fileState.mode === 'source'
+  const setSourceView = useCallback((value) => {
+    const path = ncStore.getSnapshot().activePath
+    if (path) ncStore.setFileState(path, { mode: value ? 'source' : 'rendered' })
+  }, [])
   // The transfer dialog lives in the store: a re-render or a remount does not dismiss it.
   const transfer = state.dialog
   const setTransfer = useCallback((value) => ncStore.setDialog(value), [])
@@ -965,8 +983,19 @@ export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocus
 
   const pane = state.panes[state.activePane]
   const current = resolved[state.activePane]
+  // Scroll position of the viewer, restored when the same file is opened again.
+  const viewerBodyRef = useRef(null)
   useEffect(() => {
-    setSourceView(false)
+    const element = viewerBodyRef.current
+    if (!element) return undefined
+    const path = ncStore.getSnapshot().activePath
+    if (!path) return undefined
+    const saved = (ncStore.getSnapshot().fileStates ?? {})[path]?.scroll ?? 0
+    element.scrollTop = saved
+    return () => {
+      const top = element.scrollTop
+      if (top > 0) ncStore.setFileState(path, { scroll: top })
+    }
   }, [state.activePath])
 
   const activeFile = useMemo(
@@ -1370,7 +1399,7 @@ export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocus
                       lineSelection.to > lineSelection.from
                         ? `${lineSelection.from}-${lineSelection.to}`
                         : `${lineSelection.from}`
-                    const text = `> ${activeFile.name}:${suffix}:`
+                    const text = `> ${activeFile.path}:${suffix}:`
                     const ok = sendCommentToChat({ sessionId: sessionKey, text })
                     if (!ok) {
                       alert(t('lines.failed'))
@@ -1437,7 +1466,7 @@ export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocus
               </span>
             ))}
           </div>
-          <div style={styles.fullViewerBody}>
+          <div style={styles.fullViewerBody} ref={viewerBodyRef}>
             <Preview
               path={activeFile.path}
               root={root}
