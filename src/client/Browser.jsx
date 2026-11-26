@@ -715,14 +715,12 @@ function Pane({ index, pane, active, root, cursorPath, onCursor, onResolved, onE
 }
 
 /** View of the contents of the open file. */
-function Preview({ path, root, name, mode = 'source', sessionId }) {
+function Preview({ path, root, name, mode = 'source', sessionId, selection, setSelection }) {
   const t = useT()
-  // Selected line range: { from, to }, both 1-based and inclusive.
-  const [selection, setSelection] = useState(null)
 
   useEffect(() => {
     setSelection(null)
-  }, [path])
+  }, [path, setSelection])
 
   const selectLine = (row) => {
     setSelection((previous) => (previous && previous.from === row && previous.to === row ? null : { from: row, to: row }))
@@ -789,36 +787,6 @@ function Preview({ path, root, name, mode = 'source', sessionId }) {
   const lines = painted ?? text.split('\n').map((line) => [{ text: line, type: 'plain' }])
   return (
     <div>
-      {selection ? (
-        <div style={styles.lineBar}>
-          <span style={styles.lineBarText}>
-            {name}:{selection.from}
-            {selection.to > selection.from ? `-${selection.to}` : ''}
-          </span>
-          <button
-            type="button"
-            style={styles.button}
-            onClick={() => {
-              const suffix = selection.to > selection.from ? `${selection.from}-${selection.to}` : `${selection.from}`
-              const text = `> ${name}:${suffix}:`
-              const ok = sendCommentToChat({ sessionId, text })
-              if (!ok) {
-                alert(t('lines.failed'))
-                return
-              }
-              try {
-                void navigator.clipboard?.writeText(text)
-              } catch {
-                // The reference is already in the draft; the clipboard is a bonus.
-              }
-              setSelection(null)
-            }}
-          >
-            {t('lines.comment')}
-          </button>
-        </div>
-      ) : null}
-
       <pre style={styles.pre}>
         {lines.map((line, number) => {
           const row = number + 1
@@ -875,6 +843,8 @@ export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocus
   const [resolved, setResolved] = useState({ 0: null, 1: null })
   const [pathDraft, setPathDraft] = useState('')
   const [toasts, setToasts] = useState([])
+  // Line selection of the text viewer: { from, to }, 1-based and inclusive.
+  const [lineSelection, setLineSelection] = useState(null)
   // View mode: rendered or source. Markdown and HTML have two views, the rest have one.
   const [sourceView, setSourceView] = useState(false)
   // The transfer dialog lives in the store: a re-render or a remount does not dismiss it.
@@ -1385,6 +1355,40 @@ export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocus
             <span style={styles.viewerPath} title={activeFile.path}>
               {activeFile.path}
             </span>
+            {lineSelection ? (
+              <>
+                <span style={styles.viewerSelection}>
+                  {activeFile.name}:{lineSelection.from}
+                  {lineSelection.to > lineSelection.from ? `-${lineSelection.to}` : ''}
+                </span>
+                <button
+                  type="button"
+                  style={{ ...styles.button, ...styles.buttonOn }}
+                  title={t('lines.comment')}
+                  onClick={() => {
+                    const suffix =
+                      lineSelection.to > lineSelection.from
+                        ? `${lineSelection.from}-${lineSelection.to}`
+                        : `${lineSelection.from}`
+                    const text = `> ${activeFile.name}:${suffix}:`
+                    const ok = sendCommentToChat({ sessionId: sessionKey, text })
+                    if (!ok) {
+                      alert(t('lines.failed'))
+                      return
+                    }
+                    try {
+                      void navigator.clipboard?.writeText(text)
+                    } catch {
+                      // The reference is already in the draft.
+                    }
+                    setLineSelection(null)
+                  }}
+                >
+                  {t('lines.comment')}
+                </button>
+              </>
+            ) : null}
+
             {previewKindOf(activeFile.name) === 'markdown' || previewKindOf(activeFile.name) === 'html' ? (
               <>
                 <button
@@ -1440,6 +1444,8 @@ export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocus
               name={activeFile.name}
               mode={sourceView ? 'source' : 'rendered'}
               sessionId={sessionKey}
+              selection={lineSelection}
+              setSelection={setLineSelection}
             />
           </div>
         </div>

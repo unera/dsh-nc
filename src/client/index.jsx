@@ -48,6 +48,9 @@ function NcMenuIcon({ size = 16 }) {
   )
 }
 
+/** Panel controller from `ctx.layout`: selects the central panel. */
+let layoutService = null
+
 /** `openView` captured from the Files view: the only public way to select the tab. */
 let viewSwitcher = null
 
@@ -96,6 +99,8 @@ function alertOpenedInTab() {
 
 function openInFilesView(path) {
   ncStore.openPath(path)
+  // The panel is the reliable target: selectPanel is public, openView is not.
+  if (switchPanel(true)) return true
   if (!viewSwitcher) return false
   try {
     viewSwitcher('nc-files', path)
@@ -517,6 +522,44 @@ function registerMenuItem(ctx, menus, t) {
 
 }
 
+/** Panel id shared by the sidebar launcher and the main slot. */
+const PANEL_ID = 'nc-files'
+
+/** The Files browser as a full central panel: the surface link clicks switch to. */
+function NcPanel() {
+  return (
+    <TranslateProvider>
+      <NcErrorBoundary>
+        <FileBrowser startPath={undefined} />
+      </NcErrorBoundary>
+    </TranslateProvider>
+  )
+}
+
+/** Sidebar launcher row for the panel. */
+function NcPanelIcon({ size = 16, active = false }) {
+  return (
+    <span style={{ display: 'inline-flex', opacity: active ? 1 : 0.85 }}>
+      <NcMenuIcon size={size} />
+    </span>
+  )
+}
+
+/**
+ * Switch the central column to the Files panel (or back to the conversation).
+ * @param show - true opens the panel, false returns the conversation.
+ */
+function switchPanel(show) {
+  try {
+    const layout = layoutService
+    if (!layout || typeof layout.selectPanel !== 'function') return false
+    layout.selectPanel(show ? PANEL_ID : null)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /**
  * Wire the viewer's comment action to the conversation: append the reference to
  * the draft of the session and bring the chat view back.
@@ -544,14 +587,24 @@ function registerChatBridge(ctx, log) {
     setChatBridge(({ sessionId, text }) => {
       const sessions = services.sessions
       const conversation = services.conversation
-      if (!sessionId || typeof sessions?.binding !== 'function') return false
+      trace(`chat bridge: session=${sessionId} text=${text}`)
+      if (!sessionId || typeof sessions?.binding !== 'function') {
+        trace('chat bridge: sessions.binding is unavailable')
+        return false
+      }
       const binding = sessions.binding(sessionId)
-      if (!binding) return false
+      if (!binding) {
+        trace('chat bridge: no binding for this session')
+        return false
+      }
+      trace('chat bridge: inserting into the draft')
       conversation.input.requestDraftInitialization(binding, {
         prompt: text,
         whenDraftExists: 'append',
       })
-      // Back to the chat: available because the Files view is mounted right now.
+      // Back to the chat: the panel returns to the conversation through public API,
+      // the tab needs its captured openView.
+      if (switchPanel(false)) return true
       if (viewSwitcher) {
         try {
           viewSwitcher('chat', '')
@@ -561,8 +614,27 @@ function registerChatBridge(ctx, log) {
       }
       return true
     })
+    trace('chat bridge installed')
     log.info('dsh-nc: chat bridge installed')
   }
+}
+
+/**
+ * Register the Files panel: a sidebar launcher plus the `main` slot body, so
+ * `ctx.layout.selectPanel('nc-files')` can bring the browser to the centre from
+ * anywhere and `selectPanel(null)` returns the conversation.
+ * @param ctx - client context.
+ * @param log - plugin logger.
+ */
+function registerPanel(ctx, log) {
+  whenService(ctx, 'layout', (target, layout) => {
+    layoutService = layout
+    target.slots.inject('sidebar.panellist', () =>
+      target.slots.register({ name: 'sidebar.panellist', id: PANEL_ID, order: 30, label: () => 'Files' }, NcPanelIcon),
+    )
+    target.slots.inject('main', () => target.slots.register({ name: 'main', key: PANEL_ID }, NcPanel))
+    log.info('dsh-nc: main panel registered')
+  })
 }
 
 export function apply(ctx) {
@@ -593,6 +665,12 @@ export function apply(ctx) {
   log.info('dsh-nc: Files tab registered')
 
   // Extra entry points: the context menu and the resource redirect. Both are optional.
+  try {
+    registerPanel(ctx, log)
+  } catch (error) {
+    log.info(`dsh-nc: main panel disabled (${error.message})`)
+  }
+
   try {
     registerChatBridge(ctx, log)
   } catch (error) {
