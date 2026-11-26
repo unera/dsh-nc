@@ -781,6 +781,22 @@ function Preview({ path, root, name, mode = 'source', sessionId, selection, setS
   }
   const [state, setState] = useState({ status: 'loading' })
   const kind = previewKindOf(name)
+  const text = state.body?.text ?? ''
+
+  // The gutter menu closes on any outside click; the hook lives with the others
+  // because hooks must run in the same order on every render.
+  useEffect(() => {
+    if (!gutterMenu) return undefined
+    const close = () => setGutterMenu(null)
+    document.addEventListener('click', close)
+    return () => document.removeEventListener('click', close)
+  }, [gutterMenu])
+
+  // The body is rendered now: the owner can restore its scroll offset.
+  useEffect(() => {
+    if (state.status !== 'text') return
+    if (typeof onContentReady === 'function') onContentReady(path)
+  }, [path, text, mode, state.status, onContentReady])
   // Markdown in "Render" mode and html in "Source" mode need the text as well.
   const wantsText = kind === 'text' || kind === 'markdown'
 
@@ -833,22 +849,10 @@ function Preview({ path, root, name, mode = 'source', sessionId, selection, setS
     if (kind === 'video') return <video src={url} controls style={{ maxWidth: '100%' }} />
     return <audio src={url} controls />
   }
-  const text = state.body.text ?? ''
   if (kind === 'markdown' && mode === 'rendered') {
     return <MarkdownView text={text} file={path} />
   }
-  useEffect(() => {
-    if (!gutterMenu) return undefined
-    const close = () => setGutterMenu(null)
-    document.addEventListener('click', close)
-    return () => document.removeEventListener('click', close)
-  }, [gutterMenu])
-
   const painted = highlight(text, languageOf(name))
-  // The body is rendered now: the owner can restore its scroll offset.
-  useEffect(() => {
-    if (typeof onContentReady === 'function') onContentReady(path)
-  }, [path, text, mode, onContentReady])
   const lines = painted ?? text.split('\n').map((line) => [{ text: line, type: 'plain' }])
   return (
     <div>
