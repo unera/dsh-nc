@@ -969,7 +969,7 @@ function Preview({ path, root, name, mode = 'source', sessionId, selection, setS
  * @param props.path - absolute file path.
  * @param props.onClose - close the hosting tab.
  */
-export function FileViewerPane({ path, onClose }) {
+export function FileViewerPane({ path, onClose, onExpand }) {
   const t = useT()
   const name = path.split('/').filter(Boolean).pop() ?? path
   const [selection, setSelection] = useState(null)
@@ -988,6 +988,11 @@ export function FileViewerPane({ path, onClose }) {
         <button type="button" style={styles.button} onClick={onClose} title={t('msg.close')}>
           ✕
         </button>
+        {onExpand ? (
+          <button type="button" style={styles.button} onClick={onExpand} title={t('panel.expand')}>
+            ⤢
+          </button>
+        ) : null}
         <span style={styles.viewerPath} title={path}>
           {path}
         </span>

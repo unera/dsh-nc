@@ -51,6 +51,12 @@ function NcMenuIcon({ size = 16 }) {
 /** Panel controller from `ctx.layout`: selects the central panel. */
 let layoutService = null
 
+/** Sessions service: resolution of a relative resource path needs the session cwd. */
+let sessionsService = null
+
+/** Shortcuts registry: the sidebar fullscreen toggle is one of its commands. */
+let shortcutsService = null
+
 /** `openView` captured from the Files view: the only public way to select the tab. */
 let viewSwitcher = null
 
@@ -59,25 +65,55 @@ let viewSwitcher = null
  * @param address - resource address from the tab record.
  * @returns the absolute path, or an empty string when the address is not absolute.
  */
-function filePathOfAddress(address) {
-  const prefix = 'dsh-resource://file/session/'
-  if (typeof address !== 'string' || !address.startsWith(prefix)) return ''
-  const rest = address.slice(prefix.length)
-  const slash = rest.indexOf('/')
-  if (slash === -1) return ''
-  const parts = rest.slice(slash + 1).split('/').filter((part) => part !== '')
-  const decoded = []
-  for (const part of parts) {
-    try {
-      decoded.push(decodeURIComponent(part))
-    } catch {
-      decoded.push(part)
-    }
+/** Decode one percent-encoded segment, keeping it verbatim when it is malformed. */
+function decodeSegment(segment) {
+  try {
+    return decodeURIComponent(segment)
+  } catch {
+    return segment
   }
-  const path = decoded.join('/')
-  if (path === '') return ''
-  return path.startsWith('/') ? `/${path.replace(/^\/+/, '')}` : ''
 }
+
+/**
+ * Read a file resource address as an absolute path.
+ *
+ * The reference grammar is `dsh-resource://file/session/<session>/<path>`; the
+ * path may be workspace-relative, in which case the session cwd completes it.
+ * @param address - resource address from the tab record.
+ * @returns the absolute path, or an empty string when nothing can be built.
+ */
+function filePathOfAddress(address) {
+  const prefix = 'dsh-resource://file/'
+  if (typeof address !== 'string' || !address.startsWith(prefix)) {
+    trace(`address parse: not a file address (${address})`)
+    return ''
+  }
+  const rest = address.slice(prefix.length)
+  const match = /^session\/([^/]*)\/([\s\S]*)$/.exec(rest)
+  const sessionId = match ? decodeSegment(match[1]) : ''
+  const rawPath = match ? match[2] : rest
+  const path = rawPath.split('/').map(decodeSegment).join('/')
+  if (path === '') {
+    trace(`address parse: empty path in ${address}`)
+    return ''
+  }
+  if (path.startsWith('/')) return path
+
+  // A workspace-relative reference: complete it with the session working directory.
+  let cwd = ''
+  try {
+    const sessions = sessionsService
+    cwd = sessions?.list?.getSnapshot?.()?.byId?.[sessionId]?.cwd ?? ''
+  } catch {
+    cwd = ''
+  }
+  if (cwd === '') {
+    trace(`address parse: no cwd for ${sessionId} and the path is relative (${path})`)
+    return ''
+  }
+  return `${cwd.replace(/\/+$/, '')}/${path}`
+}
+
 
 /**
  * Hand a file to the Files view: the path goes into the store, and the view is
@@ -323,7 +359,23 @@ function NcRedirect(props) {
       </div>
     )
   }
-  return <FileViewerPane path={path} onClose={close} />
+
+  /** Ask the sidebar to toggle its fullscreen presentation (its own command). */
+  const expand = () => {
+    try {
+      const shortcuts = shortcutsService
+      if (!shortcuts || typeof shortcuts.invoke !== 'function') {
+        trace('expand: shortcuts service is unavailable')
+        return
+      }
+      shortcuts.invoke('pane.fullscreen.toggle', { source: 'context-menu', sessionId: props.sessionId })
+      trace('expand: pane.fullscreen.toggle invoked')
+    } catch (error) {
+      trace(`expand failed: ${error.message}`)
+    }
+  }
+
+  return <FileViewerPane path={path} onClose={close} onExpand={expand} />
 }
 
 const VIEWER_KIND = 'dsh-nc-viewer'
@@ -585,7 +637,12 @@ function registerChatBridge(ctx, log) {
     services.conversation = conversation
     if (ready()) install()
   })
+  whenService(ctx, 'shortcuts', (target, shortcuts) => {
+    shortcutsService = shortcuts
+  })
+
   whenService(ctx, 'sessions', (target, sessions) => {
+    sessionsService = sessions
     services.sessions = sessions
     if (ready()) install()
   })
