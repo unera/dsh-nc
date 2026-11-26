@@ -293,8 +293,19 @@ const VIEWER_ID = 'dsh-nc-viewer'
  * @param ctx - client context carrying the slot registry and the sidebar registry.
  */
 function registerResourceRedirect(ctx) {
-  const tabs = ctx.sidebarRightTabs ?? (typeof ctx.get === 'function' ? ctx.get('sidebarRightTabs') : undefined)
-  if (!tabs || typeof tabs.register !== 'function') return false
+  const subscribed = whenService(ctx, 'sidebarRightTabs', (target, tabs) => {
+    if (!tabs || typeof tabs.register !== 'function') return
+    registerRedirectType(target, tabs)
+  })
+  return subscribed
+}
+
+/**
+ * Claim file resources on a live tab-type registry and provide the stand-in body.
+ * @param ctx - client context owning the effects.
+ * @param tabs - the sidebar tab-type registry.
+ */
+function registerRedirectType(ctx, tabs) {
   ctx.effect(() =>
     tabs.register({
       id: VIEWER_ID,
@@ -320,7 +331,41 @@ function registerResourceRedirect(ctx) {
   } catch (error) {
     ctx.logger('dsh-nc:client').info(`dsh-nc: sidebar body slot unavailable (${error.message})`)
   }
-  return true
+}
+
+/**
+ * Run `setup` once a client service appears in the context.
+ *
+ * Plugins load in an arbitrary order: `contextMenus` and `sidebarRightTabs` may
+ * not exist yet when `apply()` runs. `ctx.inject` is the reactive declaration for
+ * exactly this — it fires when the service arrives and never blocks the plugin.
+ * @param ctx - client context.
+ * @param name - service name.
+ * @param setup - callback receiving the context and the service.
+ * @returns whether a subscription or a direct call was arranged.
+ */
+function whenService(ctx, name, setup) {
+  const run = (target, service) => {
+    try {
+      setup(target, service)
+    } catch (error) {
+      ctx.logger('dsh-nc:client').info(`dsh-nc: ${name} setup failed (${error.message})`)
+    }
+  }
+  const present = ctx[name] ?? (typeof ctx.get === 'function' ? ctx.get(name) : undefined)
+  if (present) {
+    run(ctx, present)
+    return true
+  }
+  if (typeof ctx.inject === 'function') {
+    try {
+      ctx.inject([name], (inner) => run(inner, inner[name]))
+      return true
+    } catch {
+      return false
+    }
+  }
+  return false
 }
 
 /**
@@ -334,10 +379,23 @@ function registerResourceRedirect(ctx) {
  * @returns whether the contribution was registered.
  */
 function registerContextMenu(ctx, log) {
-  const menus = ctx.contextMenus ?? (typeof ctx.get === 'function' ? ctx.get('contextMenus') : undefined)
-  if (!menus || typeof menus.register !== 'function') return false
   const t = () => currentTranslate()
+  const subscribed = whenService(ctx, 'contextMenus', (target, menus) => {
+    if (!menus || typeof menus.register !== 'function') return
+    registerMenuItem(target, menus, t)
+  })
+  if (!subscribed) return false
+  log.info('dsh-nc: context menu items registered for file and directory links')
+  return true
+}
 
+/**
+ * Register the two contributions on a live menu registry.
+ * @param ctx - client context owning the effects.
+ * @param menus - the context menu registry.
+ * @param t - translation getter.
+ */
+function registerMenuItem(ctx, menus, t) {
   ctx.effect(() =>
     menus.register({
       id: 'dsh-nc.open',
@@ -380,8 +438,6 @@ function registerContextMenu(ctx, log) {
     }),
   )
 
-  log.info('dsh-nc: context menu items registered for file and directory links')
-  return true
 }
 
 export function apply(ctx) {
