@@ -1,6 +1,6 @@
 {
   "name": "@dr-co/dsh-nc",
-  "version": "1.4.6",
+  "version": "1.4.7",
   "description": "Norton Commander style file browser for DeepSeek Harness: a Files tab with two panels, plan-first copy/move/delete, background progress, syntax highlighting and Markdown preview.",
   "type": "module",
   "main": "./index.mjs",

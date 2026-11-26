@@ -382,16 +382,23 @@ const styles = {
     boxShadow: 'inset 2px 0 0 var(--dsw-alias-link, #2d66f7)',
   },
   lineNumberSelected: { color: 'var(--dsw-alias-link, #2d66f7)' },
-  gutterSpacer: { display: 'inline-block', width: 13 },
+  gutterSpacer: { display: 'inline-block', width: 19 },
+  // Round trigger in the gutter, left of the numbers: the affordance GitHub puts
+  // on the other side of the diff.
   gutterMenu: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 15,
+    height: 15,
+    marginRight: 4,
+    padding: 0,
     border: 'none',
-    background: 'transparent',
-    color: COLORS.dim,
+    borderRadius: '50%',
+    background: 'var(--dsw-alias-link, #2d66f7)',
+    color: '#fff',
     cursor: 'pointer',
-    padding: '0 4px',
-    font: 'inherit',
-    fontSize: '0.9em',
-    opacity: 0.65,
+    verticalAlign: 'middle',
   },
   gutterPopup: {
     position: 'fixed',
@@ -894,8 +901,8 @@ function Preview({ path, root, name, mode = 'source', sessionId, selection, setS
                   setGutterMenu({ row, x: rect.left, y: rect.bottom })
                 }}
               >
-                <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true">
-                  <path d="M1 1.5 L8 4.5 L1 7.5 Z" fill="currentColor" />
+                <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                  <path d="M1.8 3.2 L5 6.6 L8.2 3.2 Z" fill="currentColor" />
                 </svg>
               </button>
             ) : (
