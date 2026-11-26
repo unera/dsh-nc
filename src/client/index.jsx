@@ -98,6 +98,7 @@ function alertOpenedInTab() {
 }
 
 function openInFilesView(path) {
+  trace(`openInFilesView(${path})`)
   ncStore.openPath(path)
   // The panel is the reliable target: selectPanel is public, openView is not.
   if (switchPanel(true)) return true
@@ -484,6 +485,7 @@ function registerMenuItem(ctx, menus, t) {
           label,
           icon: { key: 'dsh-nc.files' },
           run: () => {
+            trace(`menu run: ${target.path}`)
             if (!openInFilesView(target.path)) alertOpenedInTab()
           },
         },
@@ -530,7 +532,7 @@ function NcPanel() {
   return (
     <TranslateProvider>
       <NcErrorBoundary>
-        <FileBrowser startPath={undefined} />
+        <FileBrowser startPath={undefined} onExit={() => switchPanel(false)} />
       </NcErrorBoundary>
     </TranslateProvider>
   )

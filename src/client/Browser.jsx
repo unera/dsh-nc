@@ -969,9 +969,11 @@ function Preview({ path, root, name, mode = 'source', sessionId, selection, setS
  * @param props.startPath - directory both panes start from in a new session.
  * @param props.root - root of the browse scope in workdir mode.
  */
-export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocusHandled }) {
+export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocusHandled, onExit }) {
   const t = useT()
-  const key = sessionKey ?? 'default'
+  // Without an explicit key (the panel case) the browser keeps whatever session
+  // state is active instead of switching to a separate 'default' bucket.
+  const key = sessionKey ?? null
   // The third argument is for server rendering and tests: the same snapshot as in the browser.
   const state = useSyncExternalStore(ncStore.subscribe, ncStore.getSnapshot, ncStore.getSnapshot)
   const [resolved, setResolved] = useState({ 0: null, 1: null })
@@ -1063,6 +1065,10 @@ export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocus
     const onKeyDown = (event) => {
       if (event.key !== 'Escape') return
       const state_ = ncStore.getSnapshot()
+      if (state_.viewMode !== 'file' && typeof onExit === 'function') {
+        onExit()
+        return
+      }
       if (state_.viewMode === 'file' && state_.activePath) ncStore.closeFile(state_.activePath)
       // Close the tab and return to the panes in any case, even if many files remain open.
       ncStore.backToPanes()
@@ -1074,7 +1080,7 @@ export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocus
   // Own state per session: both panes start in the start directory if this session has
   // not walked them yet. bind must not be called during a render — it notifies subscribers.
   useEffect(() => {
-    ncStore.bind(key)
+    if (key) ncStore.bind(key)
     let cancelled = false
     const place = async () => {
       const snapshot = ncStore.getSnapshot()
@@ -1623,6 +1629,11 @@ export function FileBrowser({ sessionKey, startPath, root, focusRequest, onFocus
       ) : null}
 
       <div style={{ ...styles.pathBar, ...(state.viewMode === 'file' ? { display: 'none' } : null) }}>
+        {onExit ? (
+          <button type="button" style={{ ...styles.button, flex: 'none' }} title={t('panel.backToChat')} onClick={onExit}>
+            {t('panel.backToChat')}
+          </button>
+        ) : null}
         <input
           style={{ ...styles.input, flex: '1 1 200px', minWidth: 0 }}
           value={pathDraft}
